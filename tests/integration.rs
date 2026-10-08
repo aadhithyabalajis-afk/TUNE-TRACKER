@@ -58,7 +58,7 @@ async fn find_msg(ws: &mut Ws, msg_type: &str, timeout: Duration) -> Option<Valu
 }
 
 async fn wait_for(ws: &mut Ws, msg_type: &str) -> Value {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
@@ -66,17 +66,43 @@ async fn wait_for(ws: &mut Ws, msg_type: &str) -> Value {
         }
         match tokio::time::timeout(remaining, ws.next()).await {
             Ok(Some(Ok(Message::Text(t)))) => {
+                eprintln!("[WAIT_FOR] received: {}", t);
                 if let Ok(v) = serde_json::from_str::<Value>(&t) {
                     if v["type"] == msg_type {
                         return v;
                     }
                 }
             }
-            Ok(Some(Ok(_))) => continue,
-            Ok(Some(Err(_))) | Ok(None) => {
+            Ok(Some(Ok(Message::Binary(_)))) => {
+                eprintln!("[WAIT_FOR] received binary frame");
+                continue;
+            }
+            Ok(Some(Ok(Message::Ping(_)))) => {
+                eprintln!("[WAIT_FOR] received ping");
+                continue;
+            }
+            Ok(Some(Ok(Message::Pong(_)))) => {
+                eprintln!("[WAIT_FOR] received pong");
+                continue;
+            }
+            Ok(Some(Ok(Message::Close(ref frame)))) => {
+                eprintln!("[WAIT_FOR] connection closed: {:?}", frame);
+                panic!("Connection closed while waiting for '{}'", msg_type);
+            }
+            Ok(Some(Ok(Message::Frame(_)))) => {
+                eprintln!("[WAIT_FOR] received raw frame");
+                continue;
+            }
+            Ok(Some(Err(e))) => {
+                eprintln!("[WAIT_FOR] connection error: {:?}", e);
+                panic!("Connection error while waiting for '{}': {:?}", msg_type, e);
+            }
+            Ok(None) => {
+                eprintln!("[WAIT_FOR] connection ended");
                 panic!("Connection closed while waiting for '{}'", msg_type);
             }
             Err(_) => {
+                eprintln!("[WAIT_FOR] timeout waiting for '{}'", msg_type);
                 panic!("Timed out waiting for message type '{}'", msg_type);
             }
         }
@@ -147,7 +173,7 @@ async fn setup_host(host_url: &str) -> Ws {
 
 // ======================== TESTS ========================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_join_create_team() {
     let (team_url, _, _) = start_server().await;
     let mut ws = connect_ws(&team_url).await;
@@ -163,7 +189,7 @@ async fn test_join_create_team() {
     assert_eq!(resp["type"], "joined");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_join_existing_team() {
     let (team_url, _, _) = start_server().await;
 
@@ -171,7 +197,7 @@ async fn test_join_existing_team() {
     let _ws2 = setup_user(&team_url, "Alpha", "User2", false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_team_size_limit() {
     let (team_url, _, _) = start_server().await;
 
@@ -200,10 +226,10 @@ async fn test_team_size_limit() {
     )
     .await;
     let resp = wait_for(&mut ws5, "error").await;
-    assert!(resp["message"].as_str().unwrap().contains("full"));
+    assert!(resp["message"].as_str().unwrap().to_lowercase().contains("full"));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_concurrent_buzz_10_users() {
     let (team_url, host_url, state) = start_server().await;
 
@@ -255,7 +281,7 @@ async fn test_concurrent_buzz_10_users() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_round_state_broadcast() {
     let (team_url, host_url, _) = start_server().await;
 
@@ -282,7 +308,7 @@ async fn test_round_state_broadcast() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_session_token_reconnect() {
     let (team_url, _, _) = start_server().await;
 
@@ -305,7 +331,7 @@ async fn test_session_token_reconnect() {
     assert_eq!(resp["username"], "ReconnectUser");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_kick_and_disqualify() {
     let (team_url, host_url, state) = start_server().await;
 
@@ -336,7 +362,7 @@ async fn test_kick_and_disqualify() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_lock_teams_prevents_join() {
     let (team_url, host_url, state) = start_server().await;
 

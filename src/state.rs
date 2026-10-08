@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
-const MAX_TEAM_SIZE: usize = 1;
+const MAX_TEAM_SIZE: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TeamStatus {
